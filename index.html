@@ -275,12 +275,13 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx, noiseGain, transmissionAudio = null;
+        let audioCtx, noiseGain, transmissionGain = null, transmissionAudio = null;
 
         function initAudio() {
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 
+                // Static Noise Setup
                 let noiseSource = audioCtx.createBufferSource();
                 const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
                 const data = buf.getChannelData(0);
@@ -296,7 +297,14 @@
             if (!transmissionAudio) {
                 transmissionAudio = new Audio(AUDIO_FILE);
                 transmissionAudio.loop = true;
-                transmissionAudio.volume = 0;
+                transmissionAudio.crossOrigin = "anonymous"; 
+
+                // Route transmission audio cleanly through the audio context pipeline
+                let source = audioCtx.createMediaElementSource(transmissionAudio);
+                transmissionGain = audioCtx.createGain();
+                transmissionGain.gain.setValueAtTime(0, audioCtx.currentTime);
+                
+                source.connect(transmissionGain).connect(audioCtx.destination);
                 transmissionAudio.play().catch(e => console.log("Waiting for user gesture..."));
             } else if (transmissionAudio.paused) {
                 transmissionAudio.play().catch(() => {});
@@ -323,10 +331,10 @@
                     signalLevel = Math.max(0, 1 - (squelch / 45));
                 }
 
-                if (transmissionAudio) {
-                    // Boosted voice transmission level multiplier from 1.0 to 1.4
+                if (transmissionGain) {
+                    // Control audio volume using the secure internal context node directly
                     let calculatedVolume = signalLevel * volMult * 1.4;
-                    transmissionAudio.volume = Math.max(0, Math.min(1, calculatedVolume));
+                    transmissionGain.gain.setTargetAtTime(Math.max(0, Math.min(1, calculatedVolume)), audioCtx.currentTime, 0.05);
                 }
                 
                 let jitterScale = finalStaticGain * 12;
@@ -334,7 +342,7 @@
                 needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
             } else {
                 if(noiseGain) noiseGain.gain.value = 0;
-                if(transmissionAudio) transmissionAudio.volume = 0;
+                if(transmissionGain) transmissionGain.gain.value = 0;
                 needle.style.transform = `rotate(-40deg)`;
             }
             freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
