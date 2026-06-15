@@ -209,7 +209,6 @@
             vertical-align: middle;
         }
 
-        /* Mobile Power Overlay Shield */
         #power-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -297,7 +296,7 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx = null, noiseGain = null, beepGain = null;
+        let audioCtx = null, noiseGain = null, masterGain = null;
         let isAudioInitialized = false;
 
         function startAudioEngine() {
@@ -306,7 +305,11 @@
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContextClass();
             
-            // White Noise Generation
+            masterGain = audioCtx.createGain();
+            masterGain.gain.setValueAtTime(1, audioCtx.currentTime);
+            masterGain.connect(audioCtx.destination);
+
+            // Static Noise Connection Base
             let noiseSource = audioCtx.createBufferSource();
             const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
             const data = buf.getChannelData(0);
@@ -316,57 +319,63 @@
             
             noiseGain = audioCtx.createGain();
             noiseGain.gain.setValueAtTime(0, audioCtx.currentTime);
-            noiseSource.connect(noiseGain).connect(audioCtx.destination);
+            noiseSource.connect(noiseGain).connect(masterGain);
             noiseSource.start(0);
-
-            // Signal Beep Tone Generator
-            let beepOsc = audioCtx.createOscillator();
-            beepOsc.type = 'square'; 
-            beepOsc.frequency.value = 750;
-            
-            beepGain = audioCtx.createGain();
-            beepGain.gain.setValueAtTime(0, audioCtx.currentTime);
-            beepOsc.connect(beepGain).connect(audioCtx.destination);
-            beepOsc.start(0);
 
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
-
             isAudioInitialized = true;
         }
+
+        // Custom function that creates a direct audio transmission safely 
+        function playSignalBeep(duration, volumeLevel) {
+            if(!isAudioInitialized || !audioCtx) return;
+            
+            let osc = audioCtx.createOscillator();
+            let gainNode = audioCtx.createGain();
+            
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(750, audioCtx.currentTime);
+            
+            gainNode.gain.setValueAtTime(volumeLevel, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            
+            osc.connect(gainNode).connect(masterGain);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        // Logic tracker separating processing checks from OS timers
+        let stepCounter = 0;
 
         function updateRadioState() {
             if (!isAudioInitialized || !audioCtx) return;
 
             if (volume > 0) {
                 let volMult = Math.pow(volume/100, 2);
-                
-                // Static Control
                 let staticLevel = Math.max(0, 1 - (squelch / 70));
+                
                 if (noiseGain) {
                     noiseGain.gain.setTargetAtTime(staticLevel * volMult * 1.5, audioCtx.currentTime, 0.03);
                 }
                 
-                // FIXED FOR MOBILE SAFARI: Using high-precision millisecond timing map 
-                let signalLevel = (currentFreq === TARGET_FREQ) ? Math.max(0, 1 - (squelch / 40)) : 0;
-                let fallbackTime = performance.now() / 1000; 
-                let pattern = (Math.floor(fallbackTime * 5) % 3 === 0);
-                
-                if (beepGain) {
-                    // Control gain parameter relative to active audio context execution timestamp
-                    beepGain.gain.setTargetAtTime(pattern ? (signalLevel * volMult * 0.4) : 0, audioCtx.currentTime, 0.01);
+                // Native structural pattern pulse trigger
+                if (currentFreq === TARGET_FREQ) {
+                    let signalLevel = Math.max(0, 1 - (squelch / 40));
+                    if (stepCounter % 3 === 0) {
+                        playSignalBeep(0.12, signalLevel * volMult * 0.4);
+                    }
                 }
                 
-                // Needle Jitter
                 let base = -40 + (volume * 0.5);
                 let jitter = (staticLevel * volMult * 4) * (Math.random() - 0.5);
                 needle.style.transform = `rotate(${base + jitter}deg)`;
             } else {
                 if (noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
-                if (beepGain) beepGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
                 needle.style.transform = `rotate(-40deg)`;
             }
+            stepCounter++;
         }
 
         setInterval(() => {
@@ -386,7 +395,6 @@
             startX = e.clientX; 
             startY = e.clientY; 
             startVal = val;
-            
             if (e.target.setPointerCapture) {
                 e.target.setPointerCapture(e.pointerId);
             }
