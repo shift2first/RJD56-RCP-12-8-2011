@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Radio Station HF Receiver</title>
     <style>
         body {
@@ -16,7 +16,6 @@
             user-select: none;
             overflow: hidden;
             color: #daddd2;
-            touch-action: none;
         }
 
         .chassis {
@@ -209,50 +208,24 @@
             vertical-align: middle;
         }
 
-        #power-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #121411;
-            z-index: 9999;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        #power-button {
-            background: #3c4535;
-            color: #daddd2;
-            border: 2px solid #23291e;
-            padding: 18px 36px;
-            font-size: 1.2em;
-            font-weight: bold;
-            letter-spacing: 2px;
-            cursor: pointer;
-            border-radius: 4px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-            text-transform: uppercase;
-        }
     </style>
 </head>
 <body>
 
-    <div id="power-overlay">
-        <button id="power-button">ВКЛЮЧИТЬ ПИТАНИЕ</button>
-    </div>
-
     <div class="chassis">
-        <div class="nameplate">КВ РАДИОПРИЕМНИК</div>
+        <div class="nameplate">ĞšĞ’ Ğ ĞĞ”Ğ˜ĞĞŸĞ Ğ˜Ğ•ĞœĞĞ˜Ğš</div>
         
         <div class="meter-bezel">
             <div class="meter-face">
                 <div class="meter-scale"></div>
-                <div class="meter-label">НАПРЯЖЕНИЕ</div>
+                <div class="meter-label">ĞĞĞŸĞ Ğ¯Ğ–Ğ•ĞĞ˜Ğ•</div>
                 <div class="meter-needle" id="needle"></div>
             </div>
         </div>
 
         <div class="panel">
             <div class="control-group">
-                <div class="label">ГРОМКОСТЬ</div>
+                <div class="label">Ğ“Ğ ĞĞœĞšĞĞ¡Ğ¢Ğ¬</div>
                 <div class="knob-base knob-small" id="vol-knob">
                     <div class="knob-grip" id="vol-rotator" style="transform: rotate(-135deg);">
                         <div class="knob-mark"></div>
@@ -261,7 +234,7 @@
             </div>
 
             <div class="control-group">
-                <div class="label">ШУМОПОДАВИТЕЛЬ</div>
+                <div class="label">Ğ¨Ğ£ĞœĞĞŸĞĞ”ĞĞ’Ğ˜Ğ¢Ğ•Ğ›Ğ¬</div>
                 <div class="knob-base knob-small" id="sq-knob">
                     <div class="knob-grip" id="sq-rotator" style="transform: rotate(-135deg);">
                         <div class="knob-mark"></div>
@@ -270,7 +243,7 @@
             </div>
 
             <div class="control-group" style="margin-top: 15px;">
-                <div class="label">УСТАНОВКА ЧАСТОТЫ</div>
+                <div class="label">Ğ£Ğ¡Ğ¢ĞĞĞĞ’ĞšĞ Ğ§ĞĞ¡Ğ¢ĞĞ¢Ğ«</div>
                 <div class="knob-base knob-large" id="tune-knob">
                     <div class="knob-grip" id="tune-rotator" style="transform: rotate(0deg);">
                         <div class="knob-mark"></div>
@@ -279,16 +252,18 @@
             </div>
 
             <div class="dial-window">
-                <div class="readout" id="freq-display">4600<span class="unit">кГц</span></div>
+                <div class="readout" id="freq-display">4600<span class="unit">ĞºĞ“Ñ†</span></div>
             </div>
         </div>
     </div>
 
     <script>
+        const AUDIO_FILE = 'transmission.mp3';
+
         let volume = 0, squelch = 0;
         const MIN_FREQ = 4000, MAX_FREQ = 5000;
         let currentFreq = 4600; 
-        const TARGET_FREQ = 4652;
+        const TARGET_FREQ = 4625;
 
         const volRotator = document.getElementById('vol-rotator');
         const sqRotator = document.getElementById('sq-rotator');
@@ -296,108 +271,79 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx = null, noiseGain = null, masterGain = null;
-        let isAudioInitialized = false;
+        let audioCtx, noiseGain, transmissionAudio = null;
 
-        function startAudioEngine() {
-            if (isAudioInitialized) return;
-
-            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            audioCtx = new AudioContextClass();
-            
-            masterGain = audioCtx.createGain();
-            masterGain.gain.setValueAtTime(1, audioCtx.currentTime);
-            masterGain.connect(audioCtx.destination);
-
-            // Static Noise Connection Base
-            let noiseSource = audioCtx.createBufferSource();
-            const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
-            const data = buf.getChannelData(0);
-            for(let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
-            noiseSource.buffer = buf; 
-            noiseSource.loop = true;
-            
-            noiseGain = audioCtx.createGain();
-            noiseGain.gain.setValueAtTime(0, audioCtx.currentTime);
-            noiseSource.connect(noiseGain).connect(masterGain);
-            noiseSource.start(0);
-
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                let noiseSource = audioCtx.createBufferSource();
+                const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+                const data = buf.getChannelData(0);
+                for(let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
+                noiseSource.buffer = buf; noiseSource.loop = true;
+                
+                noiseGain = audioCtx.createGain();
+                noiseSource.connect(noiseGain).connect(audioCtx.destination);
+                noiseSource.start();
             }
-            isAudioInitialized = true;
-        }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
 
-        // Custom function that creates a direct audio transmission safely 
-        function playSignalBeep(duration, volumeLevel) {
-            if(!isAudioInitialized || !audioCtx) return;
-            
-            let osc = audioCtx.createOscillator();
-            let gainNode = audioCtx.createGain();
-            
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(750, audioCtx.currentTime);
-            
-            gainNode.gain.setValueAtTime(volumeLevel, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-            
-            osc.connect(gainNode).connect(masterGain);
-            osc.start();
-            osc.stop(audioCtx.currentTime + duration);
+            if (!transmissionAudio) {
+                transmissionAudio = new Audio(AUDIO_FILE);
+                transmissionAudio.loop = true;
+                transmissionAudio.volume = 0;
+                transmissionAudio.play().catch(e => console.log("Waiting for user gesture..."));
+            } else if (transmissionAudio.paused) {
+                transmissionAudio.play().catch(() => {});
+            }
         }
-
-        // Logic tracker separating processing checks from OS timers
-        let stepCounter = 0;
 
         function updateRadioState() {
-            if (!isAudioInitialized || !audioCtx) return;
-
             if (volume > 0) {
+                initAudio();
+                
                 let volMult = Math.pow(volume/100, 2);
                 let staticLevel = Math.max(0, 1 - (squelch / 70));
                 
+                // 1. Dynamic background frequency variation profile
+                let freqProfile = 0.6 + 0.35 * Math.sin(currentFreq * 0.12) + 0.15 * Math.cos(currentFreq * 0.027);
+                
+                // 2. Real-time random atmospheric noise/spikes between updates
+                let liveCrackle = (Math.random() * 0.3 - 0.15);
+                
+                // 3. Combined dynamic static output matrix bound to 0.75 base scale
+                let finalStaticGain = Math.max(0.05, freqProfile + liveCrackle) * staticLevel * volMult * 0.75;
+                
                 if (noiseGain) {
-                    noiseGain.gain.setTargetAtTime(staticLevel * volMult * 1.5, audioCtx.currentTime, 0.03);
+                    noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.05);
                 }
                 
-                // Native structural pattern pulse trigger
-                if (currentFreq === TARGET_FREQ) {
-                    let signalLevel = Math.max(0, 1 - (squelch / 40));
-                    if (stepCounter % 3 === 0) {
-                        playSignalBeep(0.12, signalLevel * volMult * 0.4);
-                    }
+                // Audio track transmission handling (Audio 1)
+                let signalLevel = (currentFreq === TARGET_FREQ) ? Math.max(0, 1 - (squelch / 40)) : 0;
+                if (transmissionAudio) {
+                    let calculatedVolume = signalLevel * volMult * 1.0;
+                    transmissionAudio.volume = Math.max(0, Math.min(1, calculatedVolume));
                 }
                 
+                // Reactive Meter Needle physics based on audio texture intensity
+                let jitterScale = finalStaticGain * 12;
                 let base = -40 + (volume * 0.5);
-                let jitter = (staticLevel * volMult * 4) * (Math.random() - 0.5);
-                needle.style.transform = `rotate(${base + jitter}deg)`;
+                needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
             } else {
-                if (noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
+                if(noiseGain) noiseGain.gain.value = 0;
+                if(transmissionAudio) transmissionAudio.volume = 0;
                 needle.style.transform = `rotate(-40deg)`;
             }
-            stepCounter++;
+            freqDisplay.innerHTML = `${currentFreq}<span class="unit">ĞºĞ“Ñ†</span>`;
         }
 
-        setInterval(() => {
-            updateRadioState();
-            freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
-        }, 50);
-
-        document.getElementById('power-button').addEventListener('click', () => {
-            startAudioEngine();
-            document.getElementById('power-overlay').style.display = 'none';
-        });
+        setInterval(updateRadioState, 50);
 
         let activeKnob = null, startX, startY, startVal;
         function handlePointerDown(e, type, val) {
-            e.preventDefault(); 
-            activeKnob = type; 
-            startX = e.clientX; 
-            startY = e.clientY; 
-            startVal = val;
-            if (e.target.setPointerCapture) {
-                e.target.setPointerCapture(e.pointerId);
-            }
+            e.preventDefault(); activeKnob = type; startX = e.clientX; startY = e.clientY; startVal = val;
+            if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
         }
 
         document.getElementById('vol-knob').addEventListener('pointerdown', (e) => handlePointerDown(e, 'vol', volume));
@@ -407,23 +353,12 @@
         window.addEventListener('pointermove', (e) => {
             if (!activeKnob) return;
             let d = (e.clientX - startX) + (startY - e.clientY);
-            if (activeKnob === 'vol') { 
-                volume = Math.max(0, Math.min(100, startVal + d)); 
-                volRotator.style.transform = `rotate(${-135 + (volume * 2.7)}deg)`; 
-            } 
-            else if (activeKnob === 'sq') { 
-                squelch = Math.max(0, Math.min(100, startVal + d)); 
-                sqRotator.style.transform = `rotate(${-135 + (squelch * 2.7)}deg)`; 
-            }
-            else if (activeKnob === 'tune') { 
-                currentFreq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, Math.round(startVal + (d/1.5)))); 
-                tuneRotator.style.transform = `rotate(${(currentFreq * 2) % 360}deg)`; 
-            }
+            if (activeKnob === 'vol') { volume = Math.max(0, Math.min(100, startVal + d)); volRotator.style.transform = `rotate(${-135 + (volume * 2.7)}deg)`; } 
+            else if (activeKnob === 'sq') { squelch = Math.max(0, Math.min(100, startVal + d)); sqRotator.style.transform = `rotate(${-135 + (squelch * 2.7)}deg)`; }
+            else if (activeKnob === 'tune') { currentFreq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, Math.round(startVal + (d/1.5)))); tuneRotator.style.transform = `rotate(${(currentFreq * 2) % 360}deg)`; }
         });
 
-        window.addEventListener('pointerup', (e) => {
-            activeKnob = null;
-        });
+        window.addEventListener('pointerup', () => activeKnob = null);
     </script>
 </body>
 </html>
