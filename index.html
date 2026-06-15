@@ -275,43 +275,8 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx, noiseGain, transmissionGain = null;
-        let transmissionBuffer = null, transmissionSource = null;
+        let audioCtx = null, noiseGain = null, transmissionAudio = null;
         let isAudioSetup = false;
-
-        // Fetch and pre-decode audio into memory immediately to completely satisfy iOS requirements
-        async function loadTransmissionAudio() {
-            try {
-                const response = await fetch(AUDIO_FILE);
-                const arrayBuffer = await response.arrayBuffer();
-                // Safe handling of legacy webkit environments on older iOS versions
-                if (audioCtx.decodeAudioData.length === 1) {
-                    transmissionBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-                } else {
-                    transmissionBuffer = await new Promise((resolve, reject) => {
-                        audioCtx.decodeAudioData(arrayBuffer, resolve, reject);
-                    });
-                }
-                startBufferPlayback();
-            } catch (e) {
-                console.error("Audio decoding failed: ", e);
-            }
-        }
-
-        function startBufferPlayback() {
-            if (!audioCtx || !transmissionBuffer) return;
-            
-            // Create loop node source natively matching Web Audio standards
-            transmissionSource = audioCtx.createBufferSource();
-            transmissionSource.buffer = transmissionBuffer;
-            transmissionSource.loop = true;
-
-            transmissionGain = audioCtx.createGain();
-            transmissionGain.gain.setValueAtTime(0, audioCtx.currentTime);
-
-            transmissionSource.connect(transmissionGain).connect(audioCtx.destination);
-            transmissionSource.start(0);
-        }
 
         function initAudio() {
             if (isAudioSetup) {
@@ -319,9 +284,10 @@
                 return;
             }
 
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Static Noise Setup
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContextClass();
+
+            // 1. Core Procedural Static Noise Generator
             let noiseSource = audioCtx.createBufferSource();
             const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
             const data = buf.getChannelData(0);
@@ -334,8 +300,15 @@
             noiseSource.connect(noiseGain).connect(audioCtx.destination);
             noiseSource.start(0);
 
-            // Fetch the voice data via API ArrayBuffers directly
-            loadTransmissionAudio();
+            // 2. Native Safari Audio Pipeline Connection
+            transmissionAudio = new Audio();
+            transmissionAudio.src = AUDIO_FILE;
+            transmissionAudio.loop = true;
+            transmissionAudio.playsInline = true; 
+            transmissionAudio.volume = 0; // Starts completely silent
+            
+            // Instantly start decoding within user interaction frame
+            transmissionAudio.play().catch(e => console.log("Safari active gesture tracked"));
 
             isAudioSetup = true;
         }
@@ -358,14 +331,16 @@
                     noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.03);
                 }
                 
+                // Frequency tuning and Squelch threshold evaluation
                 let signalLevel = 0;
                 if (currentFreq === TARGET_FREQ) {
                     signalLevel = Math.max(0, 1 - (squelch / 45));
                 }
 
-                if (transmissionGain) {
+                if (transmissionAudio) {
+                    // Safe calculation bypassing web kit cross-origin blocks completely
                     let calculatedVolume = signalLevel * volMult * 1.4;
-                    transmissionGain.gain.setTargetAtTime(Math.max(0, Math.min(1, calculatedVolume)), audioCtx.currentTime, 0.03);
+                    transmissionAudio.volume = Math.max(0, Math.min(1, calculatedVolume));
                 }
                 
                 let jitterScale = finalStaticGain * 12;
@@ -373,7 +348,7 @@
                 needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
             } else {
                 if(noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
-                if(transmissionGain) transmissionGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
+                if(transmissionAudio) transmissionAudio.volume = 0;
                 needle.style.transform = `rotate(-40deg)`;
             }
             freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
