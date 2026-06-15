@@ -212,6 +212,10 @@
 </head>
 <body>
 
+    <div id="power-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#121411; z-index:999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <button id="power-on" style="background:#3c4535; color:#daddd2; border:2px solid #23291e; padding:15px 30px; font-size:1.2em; cursor:pointer; font-weight:bold; border-radius:4px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">ВКЛЮЧИТЬ ПИТАНИЕ / POWER ON</button>
+    </div>
+
     <div class="chassis">
         <div class="nameplate">КВ РАДИОПРИЕМНИК</div>
         
@@ -258,10 +262,12 @@
     </div>
 
     <script>
+        const AUDIO_FILE = 'transmission.mp3';
+
         let volume = 0, squelch = 0;
         const MIN_FREQ = 4000, MAX_FREQ = 5000;
         let currentFreq = 4600; 
-        const TARGET_FREQ = 4652;
+        const TARGET_FREQ = 4625;
 
         const volRotator = document.getElementById('vol-rotator');
         const sqRotator = document.getElementById('sq-rotator');
@@ -269,7 +275,7 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx, noiseGain, beepGain;
+        let audioCtx, noiseGain, transmissionAudio = null;
 
         function initAudio() {
             if (!audioCtx) {
@@ -284,15 +290,17 @@
                 noiseGain = audioCtx.createGain();
                 noiseSource.connect(noiseGain).connect(audioCtx.destination);
                 noiseSource.start();
-
-                let beepOsc = audioCtx.createOscillator();
-                beepOsc.type = 'square'; beepOsc.frequency.value = 750;
-                beepGain = audioCtx.createGain();
-                beepGain.gain.value = 0;
-                beepOsc.connect(beepGain).connect(audioCtx.destination);
-                beepOsc.start();
             }
             if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            if (!transmissionAudio) {
+                transmissionAudio = new Audio(AUDIO_FILE);
+                transmissionAudio.loop = true;
+                transmissionAudio.volume = 0;
+                transmissionAudio.play().catch(e => console.log("Waiting for user gesture..."));
+            } else if (transmissionAudio.paused) {
+                transmissionAudio.play().catch(() => {});
+            }
         }
 
         function updateRadioState() {
@@ -300,29 +308,47 @@
                 initAudio();
                 
                 let volMult = Math.pow(volume/100, 2);
-                
-                // Static
                 let staticLevel = Math.max(0, 1 - (squelch / 70));
-                noiseGain.gain.setTargetAtTime(staticLevel * volMult * 1.5, audioCtx.currentTime, 0.1);
                 
-                // Signal: BOOSTED multiplier from 0.15 to 0.4
+                // 1. Dynamic background frequency variation profile
+                let freqProfile = 0.6 + 0.35 * Math.sin(currentFreq * 0.12) + 0.15 * Math.cos(currentFreq * 0.027);
+                
+                // 2. Real-time random atmospheric noise/spikes between updates
+                let liveCrackle = (Math.random() * 0.3 - 0.15);
+                
+                // 3. Combined dynamic static output matrix bound to 0.75 base scale
+                let finalStaticGain = Math.max(0.05, freqProfile + liveCrackle) * staticLevel * volMult * 0.75;
+                
+                if (noiseGain) {
+                    noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.05);
+                }
+                
+                // Audio track transmission handling (Audio 1)
                 let signalLevel = (currentFreq === TARGET_FREQ) ? Math.max(0, 1 - (squelch / 40)) : 0;
-                let now = audioCtx.currentTime;
-                let pattern = (Math.floor(now * 5) % 3 === 0);
-                beepGain.gain.setTargetAtTime(pattern ? (signalLevel * volMult * 0.4) : 0, now, 0.01);
+                if (transmissionAudio) {
+                    let calculatedVolume = signalLevel * volMult * 1.0;
+                    transmissionAudio.volume = Math.max(0, Math.min(1, calculatedVolume));
+                }
                 
-                // Meter Needle
+                // Reactive Meter Needle physics based on audio texture intensity
+                let jitterScale = finalStaticGain * 12;
                 let base = -40 + (volume * 0.5);
-                needle.style.transform = `rotate(${base + (Math.random()*4-2)}deg)`;
+                needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
             } else {
                 if(noiseGain) noiseGain.gain.value = 0;
-                if(beepGain) beepGain.gain.value = 0;
+                if(transmissionAudio) transmissionAudio.volume = 0;
                 needle.style.transform = `rotate(-40deg)`;
             }
             freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
         }
 
         setInterval(updateRadioState, 50);
+
+        // Phone/Mobile Audio Intent Activation Lock Click
+        document.getElementById('power-on').addEventListener('click', () => {
+            initAudio(); 
+            document.getElementById('power-screen').style.display = 'none';
+        });
 
         let activeKnob = null, startX, startY, startVal;
         function handlePointerDown(e, type, val) {
