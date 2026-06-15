@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Radio Station HF Receiver</title>
     <style>
         body {
@@ -16,6 +16,7 @@
             user-select: none;
             overflow: hidden;
             color: #daddd2;
+            touch-action: none;
         }
 
         .chassis {
@@ -208,12 +209,35 @@
             vertical-align: middle;
         }
 
+        /* Mobile Power Overlay Shield */
+        #power-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #121411;
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #power-button {
+            background: #3c4535;
+            color: #daddd2;
+            border: 2px solid #23291e;
+            padding: 18px 36px;
+            font-size: 1.2em;
+            font-weight: bold;
+            letter-spacing: 2px;
+            cursor: pointer;
+            border-radius: 4px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
 
-    <div id="power-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#121411; z-index:999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-        <button id="power-on" style="background:#3c4535; color:#daddd2; border:2px solid #23291e; padding:15px 30px; font-size:1.2em; cursor:pointer; font-weight:bold; border-radius:4px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-transform: uppercase; letter-spacing: 1px;">ВКЛЮЧИТЬ ПИТАНИЕ</button>
+    <div id="power-overlay">
+        <button id="power-button">ВКЛЮЧИТЬ ПИТАНИЕ</button>
     </div>
 
     <div class="chassis">
@@ -262,12 +286,10 @@
     </div>
 
     <script>
-        const AUDIO_FILE = 'transmission.mp3';
-
         let volume = 0, squelch = 0;
         const MIN_FREQ = 4000, MAX_FREQ = 5000;
         let currentFreq = 4600; 
-        const TARGET_FREQ = 4625; 
+        const TARGET_FREQ = 4652;
 
         const volRotator = document.getElementById('vol-rotator');
         const sqRotator = document.getElementById('sq-rotator');
@@ -275,19 +297,16 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx = null, noiseGain = null, transmissionAudio = null;
-        let isAudioSetup = false;
+        let audioCtx = null, noiseGain = null, beepGain = null;
+        let isAudioInitialized = false;
 
-        function initAudio() {
-            if (isAudioSetup) {
-                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-                return;
-            }
+        function startAudioEngine() {
+            if (isAudioInitialized) return;
 
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContextClass();
-
-            // 1. Core Procedural Static Noise Generator
+            
+            // White Noise Generation
             let noiseSource = audioCtx.createBufferSource();
             const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
             const data = buf.getChannelData(0);
@@ -300,71 +319,77 @@
             noiseSource.connect(noiseGain).connect(audioCtx.destination);
             noiseSource.start(0);
 
-            // 2. Native Safari Audio Pipeline Connection
-            transmissionAudio = new Audio();
-            transmissionAudio.src = AUDIO_FILE;
-            transmissionAudio.loop = true;
-            transmissionAudio.playsInline = true; 
-            transmissionAudio.volume = 0; // Starts completely silent
+            // Signal Beep Tone Generator
+            let beepOsc = audioCtx.createOscillator();
+            beepOsc.type = 'square'; 
+            beepOsc.frequency.value = 750;
             
-            // Instantly start decoding within user interaction frame
-            transmissionAudio.play().catch(e => console.log("Safari active gesture tracked"));
+            beepGain = audioCtx.createGain();
+            beepGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            beepOsc.connect(beepGain).connect(audioCtx.destination);
+            beepOsc.start(0);
 
-            isAudioSetup = true;
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            isAudioInitialized = true;
         }
 
         function updateRadioState() {
-            if (!isAudioSetup) {
-                freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
-                return;
-            }
+            if (!isAudioInitialized || !audioCtx) return;
 
             if (volume > 0) {
                 let volMult = Math.pow(volume/100, 2);
+                
+                // Static Control
                 let staticLevel = Math.max(0, 1 - (squelch / 70));
-                
-                let freqProfile = 0.6 + 0.35 * Math.sin(currentFreq * 0.12) + 0.15 * Math.cos(currentFreq * 0.027);
-                let liveCrackle = (Math.random() * 0.3 - 0.15);
-                let finalStaticGain = Math.max(0.05, freqProfile + liveCrackle) * staticLevel * volMult * 0.75;
-                
                 if (noiseGain) {
-                    noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.03);
+                    noiseGain.gain.setTargetAtTime(staticLevel * volMult * 1.5, audioCtx.currentTime, 0.03);
                 }
                 
-                // Frequency tuning and Squelch threshold evaluation
-                let signalLevel = 0;
-                if (currentFreq === TARGET_FREQ) {
-                    signalLevel = Math.max(0, 1 - (squelch / 45));
-                }
-
-                if (transmissionAudio) {
-                    // Safe calculation bypassing web kit cross-origin blocks completely
-                    let calculatedVolume = signalLevel * volMult * 1.4;
-                    transmissionAudio.volume = Math.max(0, Math.min(1, calculatedVolume));
+                // FIXED FOR MOBILE SAFARI: Using high-precision millisecond timing map 
+                let signalLevel = (currentFreq === TARGET_FREQ) ? Math.max(0, 1 - (squelch / 40)) : 0;
+                let fallbackTime = performance.now() / 1000; 
+                let pattern = (Math.floor(fallbackTime * 5) % 3 === 0);
+                
+                if (beepGain) {
+                    // Control gain parameter relative to active audio context execution timestamp
+                    beepGain.gain.setTargetAtTime(pattern ? (signalLevel * volMult * 0.4) : 0, audioCtx.currentTime, 0.01);
                 }
                 
-                let jitterScale = finalStaticGain * 12;
+                // Needle Jitter
                 let base = -40 + (volume * 0.5);
-                needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
+                let jitter = (staticLevel * volMult * 4) * (Math.random() - 0.5);
+                needle.style.transform = `rotate(${base + jitter}deg)`;
             } else {
-                if(noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
-                if(transmissionAudio) transmissionAudio.volume = 0;
+                if (noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
+                if (beepGain) beepGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
                 needle.style.transform = `rotate(-40deg)`;
             }
-            freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
         }
 
-        setInterval(updateRadioState, 50);
+        setInterval(() => {
+            updateRadioState();
+            freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
+        }, 50);
 
-        document.getElementById('power-on').addEventListener('click', () => {
-            initAudio(); 
-            document.getElementById('power-screen').style.display = 'none';
+        document.getElementById('power-button').addEventListener('click', () => {
+            startAudioEngine();
+            document.getElementById('power-overlay').style.display = 'none';
         });
 
         let activeKnob = null, startX, startY, startVal;
         function handlePointerDown(e, type, val) {
-            e.preventDefault(); activeKnob = type; startX = e.clientX; startY = e.clientY; startVal = val;
-            if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
+            e.preventDefault(); 
+            activeKnob = type; 
+            startX = e.clientX; 
+            startY = e.clientY; 
+            startVal = val;
+            
+            if (e.target.setPointerCapture) {
+                e.target.setPointerCapture(e.pointerId);
+            }
         }
 
         document.getElementById('vol-knob').addEventListener('pointerdown', (e) => handlePointerDown(e, 'vol', volume));
@@ -374,12 +399,23 @@
         window.addEventListener('pointermove', (e) => {
             if (!activeKnob) return;
             let d = (e.clientX - startX) + (startY - e.clientY);
-            if (activeKnob === 'vol') { volume = Math.max(0, Math.min(100, startVal + d)); volRotator.style.transform = `rotate(${-135 + (volume * 2.7)}deg)`; } 
-            else if (activeKnob === 'sq') { squelch = Math.max(0, Math.min(100, startVal + d)); sqRotator.style.transform = `rotate(${-135 + (squelch * 2.7)}deg)`; }
-            else if (activeKnob === 'tune') { currentFreq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, Math.round(startVal + (d/1.5)))); tuneRotator.style.transform = `rotate(${(currentFreq * 2) % 360}deg)`; }
+            if (activeKnob === 'vol') { 
+                volume = Math.max(0, Math.min(100, startVal + d)); 
+                volRotator.style.transform = `rotate(${-135 + (volume * 2.7)}deg)`; 
+            } 
+            else if (activeKnob === 'sq') { 
+                squelch = Math.max(0, Math.min(100, startVal + d)); 
+                sqRotator.style.transform = `rotate(${-135 + (squelch * 2.7)}deg)`; 
+            }
+            else if (activeKnob === 'tune') { 
+                currentFreq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, Math.round(startVal + (d/1.5)))); 
+                tuneRotator.style.transform = `rotate(${(currentFreq * 2) % 360}deg)`; 
+            }
         });
 
-        window.addEventListener('pointerup', () => activeKnob = null);
+        window.addEventListener('pointerup', (e) => {
+            activeKnob = null;
+        });
     </script>
 </body>
 </html>
