@@ -213,7 +213,7 @@
 <body>
 
     <div id="power-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#121411; z-index:999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-        <button id="power-on" style="background:#3c4535; color:#daddd2; border:2px solid #23291e; padding:15px 30px; font-size:1.2em; cursor:pointer; font-weight:bold; border-radius:4px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">ВКЛЮЧИТЬ ПИТАНИЕ / POWER ON</button>
+        <button id="power-on" style="background:#3c4535; color:#daddd2; border:2px solid #23291e; padding:15px 30px; font-size:1.2em; cursor:pointer; font-weight:bold; border-radius:4px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-transform: uppercase; letter-spacing: 1px;">ВКЛЮЧИТЬ ПИТАНИЕ</button>
     </div>
 
     <div class="chassis">
@@ -267,7 +267,7 @@
         let volume = 0, squelch = 0;
         const MIN_FREQ = 4000, MAX_FREQ = 5000;
         let currentFreq = 4600; 
-        const TARGET_FREQ = 4625;
+        const TARGET_FREQ = 4625; 
 
         const volRotator = document.getElementById('vol-rotator');
         const sqRotator = document.getElementById('sq-rotator');
@@ -310,27 +310,25 @@
                 let volMult = Math.pow(volume/100, 2);
                 let staticLevel = Math.max(0, 1 - (squelch / 70));
                 
-                // 1. Dynamic background frequency variation profile
                 let freqProfile = 0.6 + 0.35 * Math.sin(currentFreq * 0.12) + 0.15 * Math.cos(currentFreq * 0.027);
-                
-                // 2. Real-time random atmospheric noise/spikes between updates
                 let liveCrackle = (Math.random() * 0.3 - 0.15);
-                
-                // 3. Combined dynamic static output matrix bound to 0.75 base scale
                 let finalStaticGain = Math.max(0.05, freqProfile + liveCrackle) * staticLevel * volMult * 0.75;
                 
                 if (noiseGain) {
                     noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.05);
                 }
                 
-                // Audio track transmission handling (Audio 1)
-                let signalLevel = (currentFreq === TARGET_FREQ) ? Math.max(0, 1 - (squelch / 40)) : 0;
+                let signalLevel = 0;
+                if (currentFreq === TARGET_FREQ) {
+                    signalLevel = Math.max(0, 1 - (squelch / 45));
+                }
+
                 if (transmissionAudio) {
-                    let calculatedVolume = signalLevel * volMult * 1.0;
+                    // Boosted voice transmission level multiplier from 1.0 to 1.4
+                    let calculatedVolume = signalLevel * volMult * 1.4;
                     transmissionAudio.volume = Math.max(0, Math.min(1, calculatedVolume));
                 }
                 
-                // Reactive Meter Needle physics based on audio texture intensity
                 let jitterScale = finalStaticGain * 12;
                 let base = -40 + (volume * 0.5);
                 needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
@@ -344,7 +342,6 @@
 
         setInterval(updateRadioState, 50);
 
-        // Phone/Mobile Audio Intent Activation Lock Click
         document.getElementById('power-on').addEventListener('click', () => {
             initAudio(); 
             document.getElementById('power-screen').style.display = 'none';
