@@ -275,46 +275,78 @@
         const freqDisplay = document.getElementById('freq-display');
         const needle = document.getElementById('needle');
 
-        let audioCtx, noiseGain, transmissionGain = null, transmissionAudio = null;
+        let audioCtx, noiseGain, transmissionGain = null;
+        let transmissionBuffer = null, transmissionSource = null;
+        let isAudioSetup = false;
 
-        function initAudio() {
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // Static Noise Setup
-                let noiseSource = audioCtx.createBufferSource();
-                const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
-                const data = buf.getChannelData(0);
-                for(let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
-                noiseSource.buffer = buf; noiseSource.loop = true;
-                
-                noiseGain = audioCtx.createGain();
-                noiseSource.connect(noiseGain).connect(audioCtx.destination);
-                noiseSource.start();
-            }
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-
-            if (!transmissionAudio) {
-                transmissionAudio = new Audio(AUDIO_FILE);
-                transmissionAudio.loop = true;
-                transmissionAudio.crossOrigin = "anonymous"; 
-
-                // Route transmission audio cleanly through the audio context pipeline
-                let source = audioCtx.createMediaElementSource(transmissionAudio);
-                transmissionGain = audioCtx.createGain();
-                transmissionGain.gain.setValueAtTime(0, audioCtx.currentTime);
-                
-                source.connect(transmissionGain).connect(audioCtx.destination);
-                transmissionAudio.play().catch(e => console.log("Waiting for user gesture..."));
-            } else if (transmissionAudio.paused) {
-                transmissionAudio.play().catch(() => {});
+        // Fetch and pre-decode audio into memory immediately to completely satisfy iOS requirements
+        async function loadTransmissionAudio() {
+            try {
+                const response = await fetch(AUDIO_FILE);
+                const arrayBuffer = await response.arrayBuffer();
+                // Safe handling of legacy webkit environments on older iOS versions
+                if (audioCtx.decodeAudioData.length === 1) {
+                    transmissionBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                } else {
+                    transmissionBuffer = await new Promise((resolve, reject) => {
+                        audioCtx.decodeAudioData(arrayBuffer, resolve, reject);
+                    });
+                }
+                startBufferPlayback();
+            } catch (e) {
+                console.error("Audio decoding failed: ", e);
             }
         }
 
+        function startBufferPlayback() {
+            if (!audioCtx || !transmissionBuffer) return;
+            
+            // Create loop node source natively matching Web Audio standards
+            transmissionSource = audioCtx.createBufferSource();
+            transmissionSource.buffer = transmissionBuffer;
+            transmissionSource.loop = true;
+
+            transmissionGain = audioCtx.createGain();
+            transmissionGain.gain.setValueAtTime(0, audioCtx.currentTime);
+
+            transmissionSource.connect(transmissionGain).connect(audioCtx.destination);
+            transmissionSource.start(0);
+        }
+
+        function initAudio() {
+            if (isAudioSetup) {
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                return;
+            }
+
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Static Noise Setup
+            let noiseSource = audioCtx.createBufferSource();
+            const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+            const data = buf.getChannelData(0);
+            for(let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
+            noiseSource.buffer = buf; 
+            noiseSource.loop = true;
+            
+            noiseGain = audioCtx.createGain();
+            noiseGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            noiseSource.connect(noiseGain).connect(audioCtx.destination);
+            noiseSource.start(0);
+
+            // Fetch the voice data via API ArrayBuffers directly
+            loadTransmissionAudio();
+
+            isAudioSetup = true;
+        }
+
         function updateRadioState() {
+            if (!isAudioSetup) {
+                freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
+                return;
+            }
+
             if (volume > 0) {
-                initAudio();
-                
                 let volMult = Math.pow(volume/100, 2);
                 let staticLevel = Math.max(0, 1 - (squelch / 70));
                 
@@ -323,7 +355,7 @@
                 let finalStaticGain = Math.max(0.05, freqProfile + liveCrackle) * staticLevel * volMult * 0.75;
                 
                 if (noiseGain) {
-                    noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.05);
+                    noiseGain.gain.setTargetAtTime(finalStaticGain, audioCtx.currentTime, 0.03);
                 }
                 
                 let signalLevel = 0;
@@ -332,17 +364,16 @@
                 }
 
                 if (transmissionGain) {
-                    // Control audio volume using the secure internal context node directly
                     let calculatedVolume = signalLevel * volMult * 1.4;
-                    transmissionGain.gain.setTargetAtTime(Math.max(0, Math.min(1, calculatedVolume)), audioCtx.currentTime, 0.05);
+                    transmissionGain.gain.setTargetAtTime(Math.max(0, Math.min(1, calculatedVolume)), audioCtx.currentTime, 0.03);
                 }
                 
                 let jitterScale = finalStaticGain * 12;
                 let base = -40 + (volume * 0.5);
                 needle.style.transform = `rotate(${base + (Math.random() * jitterScale - (jitterScale/2))}deg)`;
             } else {
-                if(noiseGain) noiseGain.gain.value = 0;
-                if(transmissionGain) transmissionGain.gain.value = 0;
+                if(noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
+                if(transmissionGain) transmissionGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
                 needle.style.transform = `rotate(-40deg)`;
             }
             freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
