@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Station HF Receiver</title>
+    <style>
+        body {
+            background-color: #121411;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            user-select: none;
+            overflow: hidden;
+            color: #daddd2;
+        }
+
+        .chassis {
+            background: #3c4535;
+            width: 440px;
+            padding: 35px;
+            border-radius: 4px;
+            box-shadow: 
+                20px 25px 40px rgba(0,0,0,0.9),
+                inset 3px 3px 6px rgba(255,255,255,0.15),
+                inset -5px -5px 20px rgba(0,0,0,0.7);
+            border: 3px solid #23291e;
+            position: relative;
+        }
+
+        .chassis::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                radial-gradient(circle at 20% 30%, rgba(0,0,0,0.1) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(0,0,0,0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .nameplate {
+            text-align: center;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 8px;
+            border: 2px solid #000;
+            border-radius: 2px;
+            font-size: 1.1em;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-bottom: 25px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.5);
+            text-transform: uppercase;
+        }
+
+        .meter-bezel {
+            width: 130px;
+            height: 90px;
+            background: #0d0f0c;
+            border-radius: 5px;
+            margin: 0 auto 30px auto;
+            padding: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.8), inset 0 2px 4px rgba(255,255,255,0.1);
+            border: 2px solid #2a3025;
+        }
+
+        .meter-face {
+            width: 100%;
+            height: 100%;
+            background: #c2c9b6;
+            border-radius: 2px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.6);
+        }
+
+        .meter-scale {
+            position: absolute;
+            top: 15px; left: 10px; right: 10px; height: 30px;
+            border-top: 2px solid #111;
+            border-radius: 40% 40% 0 0;
+        }
+
+        .meter-label {
+            position: absolute;
+            bottom: 5px;
+            width: 100%;
+            text-align: center;
+            color: #222;
+            font-size: 0.6em;
+            font-weight: bold;
+        }
+
+        .meter-needle {
+            width: 3px;
+            height: 70px;
+            background: #0a0a0a;
+            position: absolute;
+            bottom: -15px;
+            left: 50%;
+            transform-origin: bottom center;
+            transform: rotate(-40deg);
+            transition: transform 0.1s cubic-bezier(0.4, 0.0, 0.2, 1);
+            box-shadow: 2px 0 3px rgba(0,0,0,0.4);
+        }
+
+        .panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            align-items: end;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .label {
+            font-size: 0.75em;
+            font-weight: bold;
+            color: #daddd2;
+            margin-bottom: 12px;
+            text-align: center;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .knob-base {
+            background: #14110f;
+            border-radius: 50%;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.9), inset 0 2px 5px rgba(255,255,255,0.1);
+            cursor: grab;
+            position: relative;
+            touch-action: none;
+            border: 1px solid #000;
+        }
+        .knob-base:active { cursor: grabbing; }
+
+        .knob-grip {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: repeating-conic-gradient(#1c1815 0 8deg, #0a0807 8deg 16deg);
+            border: 2px solid #000;
+            position: absolute;
+            top: 0; left: 0;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        .knob-mark {
+            width: 6px;
+            height: 20%;
+            background: #e0e0e0;
+            position: absolute;
+            top: 8%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-radius: 3px;
+            box-shadow: 0 0 2px rgba(0,0,0,0.8);
+        }
+
+        .knob-small { width: 75px; height: 75px; }
+        .knob-large { width: 130px; height: 130px; margin: 0 auto; grid-column: span 2; }
+
+        .dial-window {
+            background: #080a07;
+            border: 3px solid #1a1e17;
+            padding: 8px 20px;
+            border-radius: 4px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            box-shadow: inset 0 5px 15px rgba(0,0,0,0.9), 0 2px 0 rgba(255,255,255,0.1);
+            grid-column: span 2;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .dial-window::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 50%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.1), transparent);
+            pointer-events: none;
+        }
+
+        .readout {
+            color: #a4b396;
+            font-family: 'Courier New', monospace;
+            font-size: 1.6em;
+            font-weight: bold;
+            letter-spacing: 3px;
+            text-shadow: 0 0 5px #a4b396;
+        }
+
+        .unit {
+            font-size: 0.5em;
+            color: #666;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="chassis">
+        <div class="nameplate">КВ РАДИОПРИЕМНИК</div>
+        
+        <div class="meter-bezel">
+            <div class="meter-face">
+                <div class="meter-scale"></div>
+                <div class="meter-label">НАПРЯЖЕНИЕ</div>
+                <div class="meter-needle" id="needle"></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="control-group">
+                <div class="label">ГРОМКОСТЬ</div>
+                <div class="knob-base knob-small" id="vol-knob">
+                    <div class="knob-grip" id="vol-rotator" style="transform: rotate(-135deg);">
+                        <div class="knob-mark"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="label">ШУМОПОДАВИТЕЛЬ</div>
+                <div class="knob-base knob-small" id="sq-knob">
+                    <div class="knob-grip" id="sq-rotator" style="transform: rotate(-135deg);">
+                        <div class="knob-mark"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 15px;">
+                <div class="label">УСТАНОВКА ЧАСТОТЫ</div>
+                <div class="knob-base knob-large" id="tune-knob">
+                    <div class="knob-grip" id="tune-rotator" style="transform: rotate(0deg);">
+                        <div class="knob-mark"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dial-window">
+                <div class="readout" id="freq-display">4600<span class="unit">кГц</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let volume = 0, squelch = 0;
+        const MIN_FREQ = 4000, MAX_FREQ = 5000;
+        let currentFreq = 4600; 
+        const TARGET_FREQ = 4652;
+
+        const volRotator = document.getElementById('vol-rotator');
+        const sqRotator = document.getElementById('sq-rotator');
+        const tuneRotator = document.getElementById('tune-rotator');
+        const freqDisplay = document.getElementById('freq-display');
+        const needle = document.getElementById('needle');
+
+        let audioCtx, noiseGain, beepGain;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                let noiseSource = audioCtx.createBufferSource();
+                const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+                const data = buf.getChannelData(0);
+                for(let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
+                noiseSource.buffer = buf; noiseSource.loop = true;
+                
+                noiseGain = audioCtx.createGain();
+                noiseSource.connect(noiseGain).connect(audioCtx.destination);
+                noiseSource.start();
+
+                let beepOsc = audioCtx.createOscillator();
+                beepOsc.type = 'square'; beepOsc.frequency.value = 750;
+                beepGain = audioCtx.createGain();
+                beepGain.gain.value = 0;
+                beepOsc.connect(beepGain).connect(audioCtx.destination);
+                beepOsc.start();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function updateRadioState() {
+            if (volume > 0) {
+                initAudio();
+                
+                let volMult = Math.pow(volume/100, 2);
+                
+                // Static
+                let staticLevel = Math.max(0, 1 - (squelch / 70));
+                noiseGain.gain.setTargetAtTime(staticLevel * volMult * 1.5, audioCtx.currentTime, 0.1);
+                
+                // Signal: BOOSTED multiplier from 0.15 to 0.4
+                let signalLevel = (currentFreq === TARGET_FREQ) ? Math.max(0, 1 - (squelch / 40)) : 0;
+                let now = audioCtx.currentTime;
+                let pattern = (Math.floor(now * 5) % 3 === 0);
+                beepGain.gain.setTargetAtTime(pattern ? (signalLevel * volMult * 0.4) : 0, now, 0.01);
+                
+                // Meter Needle
+                let base = -40 + (volume * 0.5);
+                needle.style.transform = `rotate(${base + (Math.random()*4-2)}deg)`;
+            } else {
+                if(noiseGain) noiseGain.gain.value = 0;
+                if(beepGain) beepGain.gain.value = 0;
+                needle.style.transform = `rotate(-40deg)`;
+            }
+            freqDisplay.innerHTML = `${currentFreq}<span class="unit">кГц</span>`;
+        }
+
+        setInterval(updateRadioState, 50);
+
+        let activeKnob = null, startX, startY, startVal;
+        function handlePointerDown(e, type, val) {
+            e.preventDefault(); activeKnob = type; startX = e.clientX; startY = e.clientY; startVal = val;
+            if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
+        }
+
+        document.getElementById('vol-knob').addEventListener('pointerdown', (e) => handlePointerDown(e, 'vol', volume));
+        document.getElementById('sq-knob').addEventListener('pointerdown', (e) => handlePointerDown(e, 'sq', squelch));
+        document.getElementById('tune-knob').addEventListener('pointerdown', (e) => handlePointerDown(e, 'tune', currentFreq));
+
+        window.addEventListener('pointermove', (e) => {
+            if (!activeKnob) return;
+            let d = (e.clientX - startX) + (startY - e.clientY);
+            if (activeKnob === 'vol') { volume = Math.max(0, Math.min(100, startVal + d)); volRotator.style.transform = `rotate(${-135 + (volume * 2.7)}deg)`; } 
+            else if (activeKnob === 'sq') { squelch = Math.max(0, Math.min(100, startVal + d)); sqRotator.style.transform = `rotate(${-135 + (squelch * 2.7)}deg)`; }
+            else if (activeKnob === 'tune') { currentFreq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, Math.round(startVal + (d/1.5)))); tuneRotator.style.transform = `rotate(${(currentFreq * 2) % 360}deg)`; }
+        });
+
+        window.addEventListener('pointerup', () => activeKnob = null);
+    </script>
+</body>
+</html>
